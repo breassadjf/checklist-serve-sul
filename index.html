@@ -340,6 +340,10 @@ select.fi{cursor:pointer}
           <div class="fg"><label class="fl">Nº Contrato *</label><input class="fi" id="n-contract" type="text" placeholder="CTR-2024-001"></div>
           <div class="fg"><label class="fl">Data de Entrega *</label><input class="fi" id="n-date" type="date"></div>
         </div>
+        <div class="fr c2">
+          <div class="fg"><label class="fl">Horário de Entrega *</label><input class="fi" id="n-time" type="time"></div>
+          <div class="fg"></div>
+        </div>
         <div class="fr"><div class="fg"><label class="fl">Nome do Cliente *</label><input class="fi" id="n-client" type="text" placeholder="Nome completo do cliente"></div></div>
         <div class="fr"><div class="fg"><label class="fl">Observações</label><input class="fi" id="n-notes" type="text" placeholder="Ex: arranhão no para-choque traseiro..."></div></div>
       </div>
@@ -558,6 +562,7 @@ function launchApp(){
   document.getElementById('uname').textContent=name.split(' ')[0];
   document.getElementById('uav').textContent=name[0].toUpperCase();
   document.getElementById('n-date').value=new Date().toISOString().split('T')[0];
+  const nowInit=new Date(); document.getElementById('n-time').value=nowInit.toTimeString().slice(0,5);
   fetchData();
   setupRT();
 }
@@ -758,12 +763,14 @@ async function saveChecklist(){
   const contract = document.getElementById('n-contract').value.trim();
   const client   = document.getElementById('n-client').value.trim();
   const dt       = document.getElementById('n-date').value;
+  const tm       = document.getElementById('n-time').value;
   const type     = document.getElementById('n-type').value;
   const notes    = document.getElementById('n-notes').value.trim();
   if(!plate)    { toast('Informe a placa','error'); return; }
   if(!contract) { toast('Informe o contrato','error'); return; }
   if(!client)   { toast('Informe o cliente','error'); return; }
   if(!dt)       { toast('Informe a data','error'); return; }
+  if(!tm)       { toast('Informe o horário de entrega','error'); return; }
   showLoad('Iniciando...');
   const btn = document.getElementById('btn-save');
   btn.disabled = true;
@@ -779,6 +786,7 @@ async function saveChecklist(){
     const { error } = await sb.from('checklists').insert({
       plate, contract, client, type, notes,
       delivery_date: dt,
+      delivery_time: tm,
       delivery_photos: delUrls,
       delivery_signature: (deliverySig && deliverySig.startsWith('data:')) ? deliverySig : null,
       return_photos: [],
@@ -804,6 +812,8 @@ function resetForm(){
   ['n-plate','n-contract','n-client','n-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('n-type').value='carro';
   document.getElementById('n-date').value=new Date().toISOString().split('T')[0];
+  const nowInit=new Date(); document.getElementById('n-time').value=nowInit.toTimeString().slice(0,5);
+  const nowT=new Date(); document.getElementById('n-time').value=nowT.toTimeString().slice(0,5);
   document.getElementById('prev-delivery').innerHTML='';
   dFiles=[];
 }
@@ -822,9 +832,17 @@ async function openDet(id){
       <div class="diitem"><div class="dilbl">Placa</div><div class="dival mono">${e.plate}</div></div>
       <div class="diitem"><div class="dilbl">Contrato</div><div class="dival">${e.contract}</div></div>
       <div class="diitem" style="grid-column:1/-1"><div class="dilbl">Cliente</div><div class="dival">${e.client}</div></div>
-      <div class="diitem"><div class="dilbl">Entrega</div><div class="dival">${fd(e.delivery_date)}</div></div>
+      <div class="diitem"><div class="dilbl">Entrega</div><div class="dival">${fd(e.delivery_date)}${e.delivery_time?' às '+e.delivery_time:''}</div></div>
       <div class="diitem"><div class="dilbl">Status</div><div class="dival" style="color:${hasR?'var(--green)':'var(--accent)'}">${hasR?'✓ Devolvido':'⏳ Em Curso'}</div></div>
       ${e.notes?`<div class="diitem" style="grid-column:1/-1"><div class="dilbl">Observações</div><div class="dival">${e.notes}</div></div>`:''}
+    </div>
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:10px">✏️ Editar Data / Horário de Entrega</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="fg"><label class="fl">Data</label><input class="fi" id="edit-del-date" type="date" value="${e.delivery_date||''}"></div>
+        <div class="fg"><label class="fl">Horário</label><input class="fi" id="edit-del-time" type="time" value="${e.delivery_time||''}"></div>
+      </div>
+      <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px" onclick="saveEditDateTime('${id}','delivery')">💾 Salvar Alteração</button>
     </div>
     <div class="pstitle">📸 Fotos de Entrega <span class="cbadge">${(e.delivery_photos||[]).length}</span></div>
     ${dth?`<div class="pgrid">${dth}</div>`:'<p style="font-size:13px;color:var(--text3);margin-bottom:8px">Nenhuma foto</p>'}
@@ -836,7 +854,15 @@ async function openDet(id){
     <div class="retsec">
       <div class="rlbl">🔁 Devolução do Veículo</div>
       ${hasR?`
-        <div class="diitem" style="margin-bottom:14px"><div class="dilbl">Data de Devolução</div><div class="dival">${fd(e.return_date)}</div></div>
+        <div class="diitem" style="margin-bottom:6px"><div class="dilbl">Devolução</div><div class="dival">${fd(e.return_date)}${e.return_time?' às '+e.return_time:''}</div></div>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px">
+          <div style="font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:10px">✏️ Editar Data / Horário de Devolução</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <div class="fg"><label class="fl">Data</label><input class="fi" id="edit-ret-date" type="date" value="${e.return_date||''}"></div>
+            <div class="fg"><label class="fl">Horário</label><input class="fi" id="edit-ret-time" type="time" value="${e.return_time||''}"></div>
+          </div>
+          <button class="btn btn-secondary" style="font-size:12px;padding:8px 14px" onclick="saveEditDateTime('${id}','return')">💾 Salvar Alteração</button>
+        </div>
         <div class="pstitle">📸 Fotos de Devolução <span class="cbadge">${e.return_photos.length}</span></div>
         <div class="pgrid">${rth}</div>
         <div class="pstitle">✍️ Assinatura de Devolução</div>
@@ -847,7 +873,10 @@ async function openDet(id){
           <button class="btn btn-d" onclick="clearReturn('${id}')">🗑 Remover Devolução</button>
         </div>
       `:`
-        <div class="fr" style="margin-bottom:14px"><div class="fg"><label class="fl">Data de Devolução</label><input class="fi" id="ret-date" type="date" value="${new Date().toISOString().split('T')[0]}"></div></div>
+        <div class="fr c2" style="margin-bottom:14px">
+          <div class="fg"><label class="fl">Data de Devolução</label><input class="fi" id="ret-date" type="date" value="${new Date().toISOString().split('T')[0]}"></div>
+          <div class="fg"><label class="fl">Horário de Devolução</label><input class="fi" id="ret-time" type="time" value="${new Date().toTimeString().slice(0,5)}"></div>
+        </div>
         <input type="file" id="f-ret" accept="image/*,image/heic,image/heif" multiple style="display:none" onchange="handleFiles(event,'return')">
         <input type="file" id="f-ret-cam" accept="image/*" capture="environment" style="display:none" onchange="handleFiles(event,'return')">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -879,7 +908,9 @@ function closeDet(){ document.getElementById('det-mo').classList.add('hidden'); 
 
 async function saveReturn(id){
   const rd=document.getElementById('ret-date')?.value;
+  const rt=document.getElementById('ret-time')?.value;
   if(!rd){ toast('Informe a data de devolucao','error'); return; }
+  if(!rt){ toast('Informe o horario de devolucao','error'); return; }
   if(!rFiles.length){ toast('Adicione ao menos uma foto','error'); return; }
   showLoad('Enviando fotos de devolucao...');
   try{
@@ -891,6 +922,7 @@ async function saveReturn(id){
     const { error } = await sb.from('checklists').update({
       return_photos: [...(entry.return_photos||[]), ...urls],
       return_date: rd,
+      return_time: rt,
       return_signature: (retSig && retSig.startsWith('data:')) ? retSig : null
     }).eq('id', id);
     if(error) throw new Error('Erro ao salvar devolucao: ' + error.message);
@@ -949,6 +981,31 @@ function toast(msg,type=''){
 function fd(d){ if(!d) return '—'; const[y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeLb();closeDet();} if(e.key==='ArrowRight') navLb(1); if(e.key==='ArrowLeft') navLb(-1); });
 
+
+// ── EDIT DATE/TIME ──
+async function saveEditDateTime(id, type) {
+  let date, time;
+  if (type === 'delivery') {
+    date = document.getElementById('edit-del-date')?.value;
+    time = document.getElementById('edit-del-time')?.value;
+    if (!date || !time) { toast('Preencha data e horário','error'); return; }
+    showLoad('Salvando...');
+    const { error } = await sb.from('checklists').update({ delivery_date: date, delivery_time: time }).eq('id', id);
+    hideLoad();
+    if (error) { toast('Erro: ' + error.message,'error'); return; }
+  } else {
+    date = document.getElementById('edit-ret-date')?.value;
+    time = document.getElementById('edit-ret-time')?.value;
+    if (!date || !time) { toast('Preencha data e horário','error'); return; }
+    showLoad('Salvando...');
+    const { error } = await sb.from('checklists').update({ return_date: date, return_time: time }).eq('id', id);
+    hideLoad();
+    if (error) { toast('Erro: ' + error.message,'error'); return; }
+  }
+  toast('✅ Data e horário atualizados!','success');
+  await fetchData();
+  openDet(id);
+}
 
 // ── SIGNATURE ──
 let sigCtx = null, sigDrawing = false, sigMode = null, sigTargetId = null;
@@ -1070,18 +1127,24 @@ async function generatePDF(id) {
     doc.setFillColor(10, 22, 40);
     doc.rect(0, 0, W, 35, 'F');
 
-    // Logo
+    // Logo — mantém proporção original
     try {
       const logoEl = document.querySelector('img[alt="Serve Sul Rent a Car"]');
       if (logoEl) {
+        const nw = logoEl.naturalWidth || logoEl.width;
+        const nh = logoEl.naturalHeight || logoEl.height;
         const lCanvas = document.createElement('canvas');
-        lCanvas.width = 300; lCanvas.height = 80;
+        lCanvas.width = nw; lCanvas.height = nh;
         const lCtx = lCanvas.getContext('2d');
-        lCtx.fillStyle = '#0a1628';
-        lCtx.fillRect(0, 0, 300, 80);
-        lCtx.drawImage(logoEl, 0, 0, 300, 80);
+        lCtx.clearRect(0, 0, nw, nh);
+        lCtx.drawImage(logoEl, 0, 0, nw, nh);
         const lData = lCanvas.toDataURL('image/png');
-        doc.addImage(lData, 'PNG', margin, 5, 55, 25);
+        // Calcula dimensões mantendo aspect ratio dentro de 60x22mm
+        const maxW = 60, maxH = 22;
+        const ratio = nw / nh;
+        let lW = maxW, lH = maxW / ratio;
+        if (lH > maxH) { lH = maxH; lW = maxH * ratio; }
+        doc.addImage(lData, 'PNG', margin, (35 - lH) / 2, lW, lH);
       }
     } catch(le) { console.log('Logo skip', le); }
 
@@ -1096,60 +1159,67 @@ async function generatePDF(id) {
 
     y = 44;
 
-    // Info box
+    // Info box — 3 rows, altura 58mm para caber tudo
+    const col1x = margin + 5, col2x = W/2 + 5;
+    const rowH = 18; // altura de cada linha
+    const boxH = rowH * 3 + 8; // 3 linhas + padding
     doc.setFillColor(26, 45, 79);
-    doc.roundedRect(margin, y, W - margin*2, 42, 3, 3, 'F');
+    doc.roundedRect(margin, y, W - margin*2, boxH, 3, 3, 'F');
 
+    // Linha 1: Placa + Contrato
     doc.setTextColor(143, 160, 192);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
+    doc.text('PLACA', col1x, y+7);
+    doc.text('CONTRATO', col2x, y+7);
 
-    const col1x = margin + 5, col2x = W/2 + 5;
-
-    doc.text('PLACA', col1x, y+8);
     doc.setTextColor(232, 160, 32);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
-    doc.text(e.plate, col1x, y+16);
+    doc.text(e.plate, col1x, y+14);
 
-    doc.setTextColor(143, 160, 192);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.text('CONTRATO', col2x, y+8);
     doc.setTextColor(240, 244, 255);
     doc.setFontSize(11);
-    doc.text(e.contract, col2x, y+16);
+    doc.setFont('helvetica', 'bold');
+    doc.text(e.contract, col2x, y+14);
 
+    // Linha 2: Cliente + Tipo
     doc.setTextColor(143, 160, 192);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.text('CLIENTE', col1x, y+24);
-    doc.setTextColor(240, 244, 255);
-    doc.setFontSize(10);
-    doc.text(e.client, col1x, y+31);
+    doc.text('CLIENTE', col1x, y+rowH+7);
+    doc.text('TIPO', col2x, y+rowH+7);
 
-    doc.text('TIPO', col2x, y+24);
-    const tipoLabel = {carro:'Carro',moto:'Moto',caminhao:'Caminhão',van:'Van'}[e.type]||e.type;
     doc.setTextColor(240, 244, 255);
-    doc.text(tipoLabel, col2x, y+31);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    // Trunca nome do cliente se muito longo
+    const clientTrunc = e.client.length > 30 ? e.client.substring(0,30)+'...' : e.client;
+    doc.text(clientTrunc, col1x, y+rowH+14);
 
-    // Dates
+    const tipoLabel = {carro:'Carro',moto:'Moto',caminhao:'Caminhao',van:'Van'}[e.type]||e.type;
+    doc.text(tipoLabel, col2x, y+rowH+14);
+
+    // Linha 3: Data entrega + Data devolução
     doc.setTextColor(143, 160, 192);
     doc.setFontSize(8);
-    doc.text('DATA ENTREGA', col1x, y+39);
+    doc.setFont('helvetica', 'normal');
+    doc.text('DATA ENTREGA', col1x, y+rowH*2+7);
+    if (e.return_date) doc.text('DATA DEVOLUCAO', col2x, y+rowH*2+7);
+
     doc.setTextColor(240, 244, 255);
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
-    doc.text(fd(e.delivery_date) + ' ' + (e.delivery_time||''), col1x, y+46-3);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    const deliveryStr = fd(e.delivery_date) + (e.delivery_time ? '  ' + e.delivery_time : '');
+    doc.text(deliveryStr, col1x, y+rowH*2+14);
 
     if (e.return_date) {
-      doc.setTextColor(143, 160, 192);
-      doc.text('DATA DEVOLUÇÃO', col2x, y+39);
       doc.setTextColor(29, 184, 122);
-      doc.text(fd(e.return_date), col2x, y+46-3);
+      const returnStr = fd(e.return_date) + (e.return_time ? '  ' + e.return_time : '');
+      doc.text(returnStr, col2x, y+rowH*2+14);
     }
 
-    y += 50;
+    y += boxH + 6;
 
     // Observations
     if (e.notes) {
