@@ -10,6 +10,7 @@
 <title>Checklist Serve Sul</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root {
   --bg:#0a1628;--bg2:#0f1e38;--bg3:#162545;--card:#1a2d4f;--card2:#1f3560;
@@ -208,6 +209,17 @@ select.fi{cursor:pointer}
 
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:3px}
+
+/* SIGNATURE */
+.sig-wrap{background:var(--bg3);border:2px dashed var(--border);border-radius:var(--r);padding:12px;margin-top:12px}
+.sig-label{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:8px}
+.sig-canvas{width:100%;height:160px;background:#fff;border-radius:8px;display:block;cursor:crosshair;touch-action:none}
+.sig-actions{display:flex;gap:8px;margin-top:8px}
+.sig-clear{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:7px 14px;font-size:12px;color:var(--text2);cursor:pointer;font-family:"DM Sans",sans-serif}
+.sig-ok{background:var(--green);border:none;border-radius:8px;padding:7px 14px;font-size:12px;color:#fff;cursor:pointer;font-weight:600;font-family:"DM Sans",sans-serif}
+.sig-preview{width:100%;max-height:80px;object-fit:contain;border-radius:8px;background:#fff;display:none;margin-top:8px;padding:4px}
+.sig-preview.show{display:block}
+.btn-pdf{background:linear-gradient(135deg,#2d6be4,#4a84f5);color:#fff;width:100%;justify-content:center;font-size:15px}
 </style>
 </head>
 <body>
@@ -332,6 +344,13 @@ select.fi{cursor:pointer}
         <div class="fr"><div class="fg"><label class="fl">Observações</label><input class="fi" id="n-notes" type="text" placeholder="Ex: arranhão no para-choque traseiro..."></div></div>
       </div>
       <div class="card">
+        <div class="pstitle">✍️ Assinatura de Entrega</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px">O cliente assina confirmando o recebimento do veículo.</p>
+        <button class="btn btn-secondary" style="width:100%;justify-content:center" onclick="openSig('delivery-new')">✍️ Capturar Assinatura do Cliente</button>
+        <img id="sig-preview-delivery" class="sig-preview" src="" alt="Assinatura de Entrega">
+        <div id="sig-status-delivery" style="font-size:12px;color:var(--green);margin-top:8px;display:none">✅ Assinatura capturada</div>
+      </div>
+      <div class="card">
         <div class="pstitle">📸 Fotos de Entrega</div>
         <input type="file" id="f-delivery" accept="image/*,image/heic,image/heif" multiple style="display:none" onchange="handleFiles(event,'delivery')">
         <input type="file" id="f-delivery-cam" accept="image/*" capture="environment" style="display:none" onchange="handleFiles(event,'delivery')">
@@ -369,6 +388,27 @@ select.fi{cursor:pointer}
   <button class="lbnav lbnext" onclick="navLb(1)">›</button>
   <img id="lb-img" src="" alt="">
   <div class="lbcap" id="lb-cap"></div>
+</div>
+
+<!-- SIGNATURE MODAL -->
+<div class="mo hidden" id="sig-mo" onclick="if(event.target===this)closeSig()">
+  <div class="modal" style="max-width:480px">
+    <div class="mh">
+      <div class="mt" id="sig-title">Assinatura do Cliente</div>
+      <button class="xbtn" onclick="closeSig()">✕</button>
+    </div>
+    <p style="font-size:13px;color:var(--text2);margin-bottom:14px">Cliente: <strong id="sig-client-name"></strong></p>
+    <div class="sig-wrap">
+      <div class="sig-label">✍️ Assine abaixo com o dedo</div>
+      <canvas id="sig-canvas" class="sig-canvas" width="800" height="320"></canvas>
+      <div class="sig-actions">
+        <button class="sig-clear" onclick="clearSig()">🗑 Limpar</button>
+        <button class="sig-ok" onclick="confirmSig()">✅ Confirmar Assinatura</button>
+      </div>
+    </div>
+    <img id="sig-preview" class="sig-preview" src="" alt="Assinatura">
+    <div id="sig-status" style="font-size:12px;color:var(--green);margin-top:8px;display:none">✅ Assinatura capturada</div>
+  </div>
 </div>
 
 <!-- LOADING -->
@@ -735,10 +775,12 @@ async function saveChecklist(){
       delUrls = await uploadFiles(dFiles, 'delivery/' + plate);
     }
     showLoad('Salvando registro...');
+    const deliverySig = document.getElementById('sig-preview-delivery')?.src || null;
     const { error } = await sb.from('checklists').insert({
       plate, contract, client, type, notes,
       delivery_date: dt,
       delivery_photos: delUrls,
+      delivery_signature: (deliverySig && deliverySig.startsWith('data:')) ? deliverySig : null,
       return_photos: [],
       created_by: user.id
     });
@@ -786,6 +828,10 @@ async function openDet(id){
     </div>
     <div class="pstitle">📸 Fotos de Entrega <span class="cbadge">${(e.delivery_photos||[]).length}</span></div>
     ${dth?`<div class="pgrid">${dth}</div>`:'<p style="font-size:13px;color:var(--text3);margin-bottom:8px">Nenhuma foto</p>'}
+    <div class="pstitle">✍️ Assinatura de Entrega</div>
+    ${e.delivery_signature
+      ? `<img src="${e.delivery_signature}" style="width:100%;max-height:90px;object-fit:contain;background:#fff;border-radius:8px;padding:4px" alt="Assinatura Entrega">`
+      : `<button class="btn btn-secondary" style="width:100%;justify-content:center;margin-bottom:4px" onclick="openSig('delivery-det','${id}')">✍️ Capturar Assinatura de Entrega</button>`}
     <div class="divider"></div>
     <div class="retsec">
       <div class="rlbl">🔁 Devolução do Veículo</div>
@@ -793,7 +839,13 @@ async function openDet(id){
         <div class="diitem" style="margin-bottom:14px"><div class="dilbl">Data de Devolução</div><div class="dival">${fd(e.return_date)}</div></div>
         <div class="pstitle">📸 Fotos de Devolução <span class="cbadge">${e.return_photos.length}</span></div>
         <div class="pgrid">${rth}</div>
-        <div style="margin-top:14px"><button class="btn btn-d" onclick="clearReturn('${id}')">🗑 Remover Devolução</button></div>
+        <div class="pstitle">✍️ Assinatura de Devolução</div>
+        ${e.return_signature
+          ? `<img src="${e.return_signature}" style="width:100%;max-height:90px;object-fit:contain;background:#fff;border-radius:8px;padding:4px" alt="Assinatura Devolução">`
+          : `<button class="btn btn-secondary" style="width:100%;justify-content:center;margin-bottom:4px" onclick="openSig('return-det','${id}')">✍️ Capturar Assinatura de Devolução</button>`}
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-d" onclick="clearReturn('${id}')">🗑 Remover Devolução</button>
+        </div>
       `:`
         <div class="fr" style="margin-bottom:14px"><div class="fg"><label class="fl">Data de Devolução</label><input class="fi" id="ret-date" type="date" value="${new Date().toISOString().split('T')[0]}"></div></div>
         <input type="file" id="f-ret" accept="image/*,image/heic,image/heif" multiple style="display:none" onchange="handleFiles(event,'return')">
@@ -807,10 +859,18 @@ async function openDet(id){
           </div>
         </div>
         <div class="pgrid" id="prev-return" style="margin-top:12px"></div>
+        <div class="sig-wrap" style="margin-top:12px">
+          <div class="sig-label">✍️ Assinatura de Devolução</div>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Cliente assina confirmando a devolução.</p>
+          <button class="btn btn-secondary" style="width:100%;justify-content:center" onclick="openSig('return-new')">✍️ Capturar Assinatura</button>
+          <img id="sig-preview-return" class="sig-preview" src="" alt="">
+          <div id="sig-status-return" style="font-size:12px;color:var(--green);margin-top:6px;display:none">✅ Assinatura capturada</div>
+        </div>
         <button class="btn btn-g" style="margin-top:16px" onclick="saveReturn('${id}')">🔁 Registrar Devolução</button>
       `}
     </div>
     <div class="divider"></div>
+    <button class="btn btn-pdf btn" style="margin-bottom:10px" onclick="generatePDF('${id}')">🖨️ Imprimir / Gerar PDF</button>
     <button class="btn btn-d" style="width:100%" onclick="delChecklist('${id}')">🗑 Excluir Checklist</button>`;
   document.getElementById('det-mo').classList.remove('hidden');
 }
@@ -827,9 +887,11 @@ async function saveReturn(id){
     if(!session) throw new Error('Sessao expirada. Faca login novamente.');
     const urls = await uploadFiles(rFiles, 'return/' + id);
     const entry = allData.find(d=>d.id===id);
+    const retSig = document.getElementById('sig-preview-return')?.src || null;
     const { error } = await sb.from('checklists').update({
       return_photos: [...(entry.return_photos||[]), ...urls],
-      return_date: rd
+      return_date: rd,
+      return_signature: (retSig && retSig.startsWith('data:')) ? retSig : null
     }).eq('id', id);
     if(error) throw new Error('Erro ao salvar devolucao: ' + error.message);
     toast('Devolucao registrada!','success');
@@ -886,6 +948,351 @@ function toast(msg,type=''){
 }
 function fd(d){ if(!d) return '—'; const[y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeLb();closeDet();} if(e.key==='ArrowRight') navLb(1); if(e.key==='ArrowLeft') navLb(-1); });
+
+
+// ── SIGNATURE ──
+let sigCtx = null, sigDrawing = false, sigMode = null, sigTargetId = null;
+
+function openSig(mode, targetId) {
+  sigMode = mode;
+  sigTargetId = targetId || null;
+  const entry = targetId ? allData.find(d => d.id === targetId) : null;
+  const clientName = entry ? entry.client : document.getElementById('n-client')?.value || '';
+  document.getElementById('sig-client-name').textContent = clientName;
+  document.getElementById('sig-title').textContent =
+    mode.includes('return') ? 'Assinatura de Devolução' : 'Assinatura de Entrega';
+  document.getElementById('sig-preview').classList.remove('show');
+  document.getElementById('sig-status').style.display = 'none';
+  document.getElementById('sig-mo').classList.remove('hidden');
+  setTimeout(() => initSigCanvas(), 100);
+}
+
+function closeSig() {
+  document.getElementById('sig-mo').classList.add('hidden');
+}
+
+function initSigCanvas() {
+  const canvas = document.getElementById('sig-canvas');
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  sigCtx = canvas.getContext('2d');
+  sigCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  sigCtx.strokeStyle = '#1a1a2e';
+  sigCtx.lineWidth = 2.5;
+  sigCtx.lineCap = 'round';
+  sigCtx.lineJoin = 'round';
+  sigCtx.fillStyle = '#ffffff';
+  sigCtx.fillRect(0, 0, canvas.width, canvas.height);
+  sigDrawing = false;
+
+  const getPos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const src = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - r.left, y: src.clientY - r.top };
+  };
+  canvas.onmousedown = canvas.ontouchstart = (e) => {
+    e.preventDefault(); sigDrawing = true;
+    const p = getPos(e); sigCtx.beginPath(); sigCtx.moveTo(p.x, p.y);
+  };
+  canvas.onmousemove = canvas.ontouchmove = (e) => {
+    e.preventDefault(); if (!sigDrawing) return;
+    const p = getPos(e); sigCtx.lineTo(p.x, p.y); sigCtx.stroke();
+  };
+  canvas.onmouseup = canvas.ontouchend = (e) => { e.preventDefault(); sigDrawing = false; };
+}
+
+function clearSig() {
+  if (!sigCtx) return;
+  const canvas = document.getElementById('sig-canvas');
+  sigCtx.fillStyle = '#ffffff';
+  sigCtx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+async function confirmSig() {
+  const canvas = document.getElementById('sig-canvas');
+  const dataUrl = canvas.toDataURL('image/png');
+
+  // Check if canvas has actual drawing (not blank white)
+  const blank = document.createElement('canvas');
+  blank.width = canvas.width; blank.height = canvas.height;
+  const bCtx = blank.getContext('2d');
+  bCtx.fillStyle = '#ffffff'; bCtx.fillRect(0, 0, blank.width, blank.height);
+  if (dataUrl === blank.toDataURL('image/png')) {
+    toast('Desenhe a assinatura antes de confirmar', 'error'); return;
+  }
+
+  if (sigMode === 'delivery-new') {
+    const prev = document.getElementById('sig-preview-delivery');
+    const status = document.getElementById('sig-status-delivery');
+    if (prev) { prev.src = dataUrl; prev.classList.add('show'); }
+    if (status) status.style.display = 'block';
+  } else if (sigMode === 'return-new') {
+    const prev = document.getElementById('sig-preview-return');
+    const status = document.getElementById('sig-status-return');
+    if (prev) { prev.src = dataUrl; prev.classList.add('show'); }
+    if (status) status.style.display = 'block';
+  } else if (sigMode === 'delivery-det' && sigTargetId) {
+    showLoad('Salvando assinatura...');
+    const { error } = await sb.from('checklists').update({ delivery_signature: dataUrl }).eq('id', sigTargetId);
+    hideLoad();
+    if (error) { toast('Erro: ' + error.message, 'error'); return; }
+    toast('Assinatura de entrega salva!', 'success');
+    await fetchData(); openDet(sigTargetId);
+  } else if (sigMode === 'return-det' && sigTargetId) {
+    showLoad('Salvando assinatura...');
+    const { error } = await sb.from('checklists').update({ return_signature: dataUrl }).eq('id', sigTargetId);
+    hideLoad();
+    if (error) { toast('Erro: ' + error.message, 'error'); return; }
+    toast('Assinatura de devolução salva!', 'success');
+    await fetchData(); openDet(sigTargetId);
+  }
+
+  document.getElementById('sig-preview').src = dataUrl;
+  document.getElementById('sig-preview').classList.add('show');
+  document.getElementById('sig-status').style.display = 'block';
+  closeSig();
+}
+
+// ── PDF GENERATION ──
+async function generatePDF(id) {
+  const e = allData.find(d => d.id === id);
+  if (!e) return;
+
+  showLoad('Gerando PDF...');
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const W = 210, margin = 15;
+    let y = margin;
+
+    // Header background
+    doc.setFillColor(10, 22, 40);
+    doc.rect(0, 0, W, 35, 'F');
+
+    // Logo
+    try {
+      const logoEl = document.querySelector('img[alt="Serve Sul Rent a Car"]');
+      if (logoEl) {
+        const lCanvas = document.createElement('canvas');
+        lCanvas.width = 300; lCanvas.height = 80;
+        const lCtx = lCanvas.getContext('2d');
+        lCtx.fillStyle = '#0a1628';
+        lCtx.fillRect(0, 0, 300, 80);
+        lCtx.drawImage(logoEl, 0, 0, 300, 80);
+        const lData = lCanvas.toDataURL('image/png');
+        doc.addImage(lData, 'PNG', margin, 5, 55, 25);
+      }
+    } catch(le) { console.log('Logo skip', le); }
+
+    // Title
+    doc.setTextColor(232, 160, 32);
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CHECKLIST DE VEÍCULO', W - margin, 15, { align: 'right' });
+    doc.setFontSize(9);
+    doc.setTextColor(143, 160, 192);
+    doc.text('Serve Sul Rent a Car', W - margin, 22, { align: 'right' });
+
+    y = 44;
+
+    // Info box
+    doc.setFillColor(26, 45, 79);
+    doc.roundedRect(margin, y, W - margin*2, 42, 3, 3, 'F');
+
+    doc.setTextColor(143, 160, 192);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+
+    const col1x = margin + 5, col2x = W/2 + 5;
+
+    doc.text('PLACA', col1x, y+8);
+    doc.setTextColor(232, 160, 32);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text(e.plate, col1x, y+16);
+
+    doc.setTextColor(143, 160, 192);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('CONTRATO', col2x, y+8);
+    doc.setTextColor(240, 244, 255);
+    doc.setFontSize(11);
+    doc.text(e.contract, col2x, y+16);
+
+    doc.setTextColor(143, 160, 192);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('CLIENTE', col1x, y+24);
+    doc.setTextColor(240, 244, 255);
+    doc.setFontSize(10);
+    doc.text(e.client, col1x, y+31);
+
+    doc.text('TIPO', col2x, y+24);
+    const tipoLabel = {carro:'Carro',moto:'Moto',caminhao:'Caminhão',van:'Van'}[e.type]||e.type;
+    doc.setTextColor(240, 244, 255);
+    doc.text(tipoLabel, col2x, y+31);
+
+    // Dates
+    doc.setTextColor(143, 160, 192);
+    doc.setFontSize(8);
+    doc.text('DATA ENTREGA', col1x, y+39);
+    doc.setTextColor(240, 244, 255);
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+    doc.text(fd(e.delivery_date) + ' ' + (e.delivery_time||''), col1x, y+46-3);
+
+    if (e.return_date) {
+      doc.setTextColor(143, 160, 192);
+      doc.text('DATA DEVOLUÇÃO', col2x, y+39);
+      doc.setTextColor(29, 184, 122);
+      doc.text(fd(e.return_date), col2x, y+46-3);
+    }
+
+    y += 50;
+
+    // Observations
+    if (e.notes) {
+      doc.setFillColor(22, 37, 69);
+      doc.roundedRect(margin, y, W-margin*2, 16, 2, 2, 'F');
+      doc.setTextColor(143, 160, 192);
+      doc.setFontSize(8);
+      doc.text('OBSERVAÇÕES', margin+5, y+6);
+      doc.setTextColor(240, 244, 255);
+      doc.setFontSize(9);
+      doc.text(e.notes, margin+5, y+13);
+      y += 22;
+    }
+
+    // Delivery photos
+    if (e.delivery_photos && e.delivery_photos.length > 0) {
+      doc.setTextColor(232, 160, 32);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FOTOS DE ENTREGA', margin, y+6);
+      y += 10;
+
+      const photoW = 38, photoH = 28, gap = 4;
+      let px = margin;
+      for (let i = 0; i < Math.min(e.delivery_photos.length, 6); i++) {
+        if (px + photoW > W - margin) { px = margin; y += photoH + gap; }
+        if (y + photoH > 270) break;
+        try {
+          const imgData = await loadImageAsBase64(e.delivery_photos[i]);
+          doc.addImage(imgData, 'JPEG', px, y, photoW, photoH);
+        } catch(ie) {
+          doc.setFillColor(22, 37, 69);
+          doc.rect(px, y, photoW, photoH, 'F');
+        }
+        px += photoW + gap;
+      }
+      y += photoH + 8;
+    }
+
+    // Delivery signature
+    if (e.delivery_signature) {
+      if (y + 30 > 270) { doc.addPage(); y = margin; }
+      doc.setTextColor(232, 160, 32);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ASSINATURA DE ENTREGA', margin, y+6);
+      y += 10;
+      doc.setFillColor(255,255,255);
+      doc.roundedRect(margin, y, 80, 25, 2, 2, 'F');
+      doc.addImage(e.delivery_signature, 'PNG', margin+2, y+2, 76, 21);
+      doc.setTextColor(143, 160, 192);
+      doc.setFontSize(7);
+      doc.text('Assinatura do cliente — ' + e.client, margin, y+30);
+      y += 36;
+    }
+
+    // Return section
+    if (e.return_date) {
+      if (y + 10 > 260) { doc.addPage(); y = margin; }
+
+      // Divider
+      doc.setDrawColor(45, 107, 228);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, W-margin, y);
+      y += 8;
+
+      doc.setTextColor(29, 184, 122);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DEVOLUÇÃO DO VEÍCULO', margin, y);
+      y += 8;
+
+      if (e.return_photos && e.return_photos.length > 0) {
+        doc.setTextColor(143, 160, 192);
+        doc.setFontSize(10);
+        doc.text('FOTOS DE DEVOLUÇÃO', margin, y+4);
+        y += 10;
+        const photoW = 38, photoH = 28, gap = 4;
+        let px = margin;
+        for (let i = 0; i < Math.min(e.return_photos.length, 6); i++) {
+          if (px + photoW > W - margin) { px = margin; y += photoH + gap; }
+          if (y + photoH > 270) { doc.addPage(); y = margin; px = margin; }
+          try {
+            const imgData = await loadImageAsBase64(e.return_photos[i]);
+            doc.addImage(imgData, 'JPEG', px, y, photoW, photoH);
+          } catch(ie) {
+            doc.setFillColor(22, 37, 69);
+            doc.rect(px, y, photoW, photoH, 'F');
+          }
+          px += photoW + gap;
+        }
+        y += photoH + 8;
+      }
+
+      if (e.return_signature) {
+        if (y + 30 > 270) { doc.addPage(); y = margin; }
+        doc.setTextColor(29, 184, 122);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('ASSINATURA DE DEVOLUÇÃO', margin, y+6);
+        y += 10;
+        doc.setFillColor(255,255,255);
+        doc.roundedRect(margin, y, 80, 25, 2, 2, 'F');
+        doc.addImage(e.return_signature, 'PNG', margin+2, y+2, 76, 21);
+        doc.setTextColor(143, 160, 192);
+        doc.setFontSize(7);
+        doc.text('Assinatura do cliente — ' + e.client, margin, y+30);
+        y += 36;
+      }
+    }
+
+    // Footer
+    doc.setFillColor(10, 22, 40);
+    doc.rect(0, 285, W, 12, 'F');
+    doc.setTextColor(90, 112, 144);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    const now2 = new Date();
+    doc.text('Gerado em ' + now2.toLocaleDateString('pt-BR') + ' às ' + now2.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}) + ' — Serve Sul Rent a Car', W/2, 291, {align:'center'});
+
+    doc.save('Checklist_' + e.plate + '_' + (e.delivery_date||'').replace(/-/g,'') + '.pdf');
+    toast('✅ PDF gerado!', 'success');
+  } catch(err) {
+    console.error(err);
+    toast('Erro ao gerar PDF: ' + err.message, 'error');
+  }
+  hideLoad();
+}
+
+function loadImageAsBase64(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const cv = document.createElement('canvas');
+      cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      cv.getContext('2d').drawImage(img, 0, 0);
+      resolve(cv.toDataURL('image/jpeg', 0.8));
+    };
+    img.onerror = reject;
+    img.src = url + '?t=' + Date.now();
+  });
+}
 
 initApp();
 </script>
