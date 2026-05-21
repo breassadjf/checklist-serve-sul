@@ -282,6 +282,14 @@ select.fi{cursor:pointer}
         <label class="fl">Nome</label>
         <input class="fi" id="a-name" type="text" placeholder="Seu nome">
       </div>
+      <div class="fg" id="unit-grp" style="margin-bottom:14px;display:none">
+        <label class="fl">Unidade *</label>
+        <select class="fi" id="a-unit">
+          <option value="">Selecione a unidade...</option>
+          <option value="juiz_de_fora">📍 Juiz de Fora</option>
+          <option value="rio_de_janeiro">📍 Rio de Janeiro</option>
+        </select>
+      </div>
       <button class="btn btn-p" id="btn-auth" onclick="doAuth()">Entrar</button>
       <div class="l-forgot" id="l-forgot" onclick="forgotPass()">Esqueci minha senha</div>
     </div>
@@ -319,6 +327,11 @@ select.fi{cursor:pointer}
       <div class="sec-sub">Dados sincronizados em tempo real</div>
       <div class="sgrid" id="sgrid"></div>
       <div class="sbar"><span class="sico">🔍</span><input class="fi" id="search" type="text" placeholder="Placa, contrato ou cliente..." oninput="renderList()" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+      <div class="fbar" id="unit-filter-bar" style="display:none">
+        <button class="fbtn active" id="uf-all" onclick="setUnitFilter('all',this)">🌐 Todas Unidades</button>
+        <button class="fbtn" id="uf-jf" onclick="setUnitFilter('juiz_de_fora',this)">📍 Juiz de Fora</button>
+        <button class="fbtn" id="uf-rj" onclick="setUnitFilter('rio_de_janeiro',this)">📍 Rio de Janeiro</button>
+      </div>
       <div class="fbar">
         <button class="fbtn active" onclick="setFilter('all',this)">Todos</button>
         <button class="fbtn" onclick="setFilter('pending',this)">Sem Devolução</button>
@@ -338,6 +351,15 @@ select.fi{cursor:pointer}
         </div>
         <div class="fr c2">
           <div class="fg"><label class="fl">Nº Contrato *</label><input class="fi" id="n-contract" type="text" placeholder="CTR-2024-001"></div>
+          <div class="fg"><label class="fl">Unidade *</label>
+            <select class="fi" id="n-unit">
+              <option value="">Selecione...</option>
+              <option value="juiz_de_fora">📍 Juiz de Fora</option>
+              <option value="rio_de_janeiro">📍 Rio de Janeiro</option>
+            </select>
+          </div>
+        </div>
+        <div class="fr c2">
           <div class="fg"><label class="fl">Data de Entrega *</label><input class="fi" id="n-date" type="date"></div>
         </div>
         <div class="fr c2">
@@ -509,6 +531,7 @@ function switchTab(m){
   document.getElementById('ltab-in').classList.toggle('active',m==='in');
   document.getElementById('ltab-up').classList.toggle('active',m==='up');
   document.getElementById('name-grp').style.display=m==='up'?'flex':'none';
+  document.getElementById('unit-grp').style.display=m==='up'?'flex':'none';
   document.getElementById('btn-auth').textContent=m==='in'?'Entrar':'Criar Conta';
   document.getElementById('l-forgot').style.display=m==='in'?'block':'none';
   document.getElementById('l-err').style.display='none';
@@ -526,7 +549,9 @@ async function doAuth(){
     if(aMode==='in'){ res=await sb.auth.signInWithPassword({email,password:pass}); }
     else{
       const name=document.getElementById('a-name').value.trim();
-      res=await sb.auth.signUp({email,password:pass,options:{data:{name}}});
+      const unit=document.getElementById('a-unit').value;
+      if(!unit){ err.style.cssText='display:block;color:var(--red)'; err.textContent='Selecione a unidade'; btn.disabled=false; btn.textContent='Criar Conta'; return; }
+      res=await sb.auth.signUp({email,password:pass,options:{data:{name,unit}}});
       if(!res.error&&res.data.user&&!res.data.session){
         err.style.cssText='display:block;color:var(--green);background:rgba(29,184,122,.1);border-color:rgba(29,184,122,.3)';
         err.textContent='✅ Conta criada! Verifique seu e-mail para confirmar.';
@@ -554,6 +579,13 @@ async function forgotPass(){
 }
 async function doSignOut(){ await sb.auth.signOut(); allData=[]; }
 
+// ── MASTER & UNIT ──
+const MASTER_EMAILS = ['breno@servesul.com.br','igor@servesul.com.br'];
+function isMaster(){ return MASTER_EMAILS.includes(user?.email?.toLowerCase()); }
+function userUnit(){ return user?.user_metadata?.unit || null; }
+function unitLabel(u){ return u==='juiz_de_fora'?'Juiz de Fora':u==='rio_de_janeiro'?'Rio de Janeiro':u||'—'; }
+function unitColor(u){ return u==='juiz_de_fora'?'var(--blue2)':'var(--green)'; }
+
 // ── LAUNCH ──
 function launchApp(){
   document.getElementById('app').style.display='block';
@@ -563,6 +595,28 @@ function launchApp(){
   document.getElementById('uav').textContent=name[0].toUpperCase();
   document.getElementById('n-date').value=new Date().toISOString().split('T')[0];
   const nowInit=new Date(); document.getElementById('n-time').value=nowInit.toTimeString().slice(0,5);
+
+  // Show unit badge in header
+  const unit = userUnit();
+  const master = isMaster();
+  const hright = document.querySelector('.hright');
+  let badge = document.getElementById('unit-badge');
+  if(!badge){ badge=document.createElement('div'); badge.id='unit-badge'; hright.insertBefore(badge,hright.firstChild); }
+  badge.style.cssText='padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid;white-space:nowrap';
+  if(master){
+    badge.textContent='⭐ Master';
+    badge.style.color='var(--accent)'; badge.style.borderColor='rgba(232,160,32,0.4)'; badge.style.background='rgba(232,160,32,0.1)';
+  } else if(unit){
+    badge.textContent='📍 '+unitLabel(unit);
+    badge.style.color=unitColor(unit); badge.style.borderColor='rgba(74,132,245,0.4)'; badge.style.background='rgba(74,132,245,0.1)';
+  }
+
+  // Auto-set unit field in new checklist form if not master
+  if(!master && unit){
+    let uSelect = document.getElementById('n-unit');
+    if(uSelect){ uSelect.value=unit; uSelect.disabled=true; }
+  }
+
   fetchData();
   setupRT();
 }
@@ -608,7 +662,9 @@ function setFilter(f,btn){
 
 // ── STATS ──
 function renderStats(){
-  const t=allData.length, d=allData.filter(x=>x.return_date).length, p=t-d;
+  let sData = [...allData];
+  if(isMaster() && unitFilter !== 'all') sData = sData.filter(d=>d.unit===unitFilter);
+  const t=sData.length, d=sData.filter(x=>x.return_date).length, p=t-d;
   document.getElementById('sgrid').innerHTML=`
     <div class="scard"><div class="sval">${t}</div><div class="slbl">Total</div></div>
     <div class="scard"><div class="sval" style="color:var(--accent)">${p}</div><div class="slbl">Em Curso</div></div>
@@ -616,12 +672,27 @@ function renderStats(){
 }
 
 // ── LIST ──
+let unitFilter = 'all';
+function setUnitFilter(u, btn){
+  unitFilter = u;
+  document.querySelectorAll('#unit-filter-bar .fbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderList();
+  renderStats();
+}
+
 function renderList(){
+  // Show master unit filter bar
+  const uBar = document.getElementById('unit-filter-bar');
+  if(uBar) uBar.style.display = isMaster() ? 'flex' : 'none';
+
   const q=(document.getElementById('search')?.value||'').toLowerCase().trim();
   let data=[...allData];
   if(q) data=data.filter(d=>d.plate?.toLowerCase().includes(q)||d.client?.toLowerCase().includes(q)||d.contract?.toLowerCase().includes(q));
   if(filter==='pending') data=data.filter(d=>!d.return_date);
   if(filter==='done') data=data.filter(d=>!!d.return_date);
+  // Master unit filter
+  if(isMaster() && unitFilter !== 'all') data=data.filter(d=>d.unit===unitFilter);
   const c=document.getElementById('list');
   if(!data.length){
     c.innerHTML=`<div class="empty"><div class="ei">🗂️</div><div class="et">${q?'Nenhum resultado':'Nenhum checklist'}</div><div class="es">${q?'Tente outro termo':'Clique em "+ Novo" para começar'}</div></div>`;
@@ -766,9 +837,11 @@ async function saveChecklist(){
   const tm       = document.getElementById('n-time').value;
   const type     = document.getElementById('n-type').value;
   const notes    = document.getElementById('n-notes').value.trim();
+  const unit     = document.getElementById('n-unit').value || userUnit() || '';
   if(!plate)    { toast('Informe a placa','error'); return; }
   if(!contract) { toast('Informe o contrato','error'); return; }
   if(!client)   { toast('Informe o cliente','error'); return; }
+  if(!unit)     { toast('Selecione a unidade','error'); return; }
   if(!dt)       { toast('Informe a data','error'); return; }
   if(!tm)       { toast('Informe o horário de entrega','error'); return; }
   showLoad('Iniciando...');
@@ -785,6 +858,7 @@ async function saveChecklist(){
     const deliverySig = document.getElementById('sig-preview-delivery')?.src || null;
     const { error } = await sb.from('checklists').insert({
       plate, contract, client, type, notes,
+      unit: unit,
       delivery_date: dt,
       delivery_time: tm,
       delivery_photos: delUrls,
@@ -812,6 +886,9 @@ function resetForm(){
   ['n-plate','n-contract','n-client','n-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('n-type').value='carro';
   document.getElementById('n-date').value=new Date().toISOString().split('T')[0];
+  // Auto-fill unit for non-master users
+  const uSel=document.getElementById('n-unit');
+  if(uSel){ if(!isMaster()&&userUnit()){ uSel.value=userUnit(); uSel.disabled=true; } else { uSel.value=''; uSel.disabled=false; } }
   const nowInit=new Date(); document.getElementById('n-time').value=nowInit.toTimeString().slice(0,5);
   const nowT=new Date(); document.getElementById('n-time').value=nowT.toTimeString().slice(0,5);
   document.getElementById('prev-delivery').innerHTML='';
@@ -830,6 +907,7 @@ async function openDet(id){
   document.getElementById('det-body').innerHTML=`
     <div class="digrid">
       <div class="diitem"><div class="dilbl">Placa</div><div class="dival mono">${e.plate}</div></div>
+      <div class="diitem"><div class="dilbl">Unidade</div><div class="dival" style="color:${unitColor(e.unit)}">${unitLabel(e.unit)}</div></div>
       <div class="diitem"><div class="dilbl">Contrato</div><div class="dival">${e.contract}</div></div>
       <div class="diitem" style="grid-column:1/-1"><div class="dilbl">Cliente</div><div class="dival">${e.client}</div></div>
       <div class="diitem"><div class="dilbl">Entrega</div><div class="dival">${fd(e.delivery_date)}${e.delivery_time?' às '+e.delivery_time:''}</div></div>
@@ -1188,7 +1266,7 @@ async function generatePDF(id) {
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.text('CLIENTE', col1x, y+rowH+7);
-    doc.text('TIPO', col2x, y+rowH+7);
+    doc.text('UNIDADE', col2x, y+rowH+7);
 
     doc.setTextColor(240, 244, 255);
     doc.setFontSize(9);
@@ -1197,8 +1275,8 @@ async function generatePDF(id) {
     const clientTrunc = e.client.length > 30 ? e.client.substring(0,30)+'...' : e.client;
     doc.text(clientTrunc, col1x, y+rowH+14);
 
-    const tipoLabel = {carro:'Carro',moto:'Moto',caminhao:'Caminhao',van:'Van'}[e.type]||e.type;
-    doc.text(tipoLabel, col2x, y+rowH+14);
+    const uLabelPdf = unitLabel(e.unit);
+    doc.text(uLabelPdf, col2x, y+rowH+14);
 
     // Linha 3: Data entrega + Data devolução
     doc.setTextColor(143, 160, 192);
