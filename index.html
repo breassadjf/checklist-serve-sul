@@ -534,7 +534,13 @@ const USERS = [
 // ── MASTER & UNIT ──
 const MASTER_EMAILS = ['breno@servesul.com.br','igor@servesul.com.br'];
 function isMaster(){ return user && MASTER_EMAILS.includes(user.email?.toLowerCase()); }
-function userUnit(){ return user?.user_metadata?.unit || null; }
+function userUnit(){
+  // Primeiro tenta o metadata do Supabase
+  if(user?.user_metadata?.unit) return user.user_metadata.unit;
+  // Fallback: busca na lista USERS pelo e-mail
+  const u = USERS.find(u => u.email.toLowerCase() === user?.email?.toLowerCase());
+  return u ? u.unit : null;
+}
 function unitLabel(u){
   if(u==='juiz_de_fora') return 'Juiz de Fora';
   if(u==='rio_de_janeiro') return 'Rio de Janeiro';
@@ -645,7 +651,13 @@ function setupRT(){
 // ── FETCH ──
 async function fetchData(){
   setSC('syncing');
-  const {data,error}=await sb.from('checklists').select('*').order('created_at',{ascending:false});
+  // Filtra por unidade no banco — não-master só vê sua própria unidade
+  let query = sb.from('checklists').select('*').order('created_at',{ascending:false});
+  if(!isMaster()){
+    const u = userUnit();
+    if(u) query = query.eq('unit', u);
+  }
+  const {data,error} = await query;
   if(error){ console.error(error); setSC('err'); return; }
   allData=data||[];
   setSC('ok');
