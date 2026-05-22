@@ -471,7 +471,7 @@ async function initApp(){
     const {data:{session}, error} = await sb.auth.getSession();
     if(error) throw error;
     if(session){ user=session.user; launchApp(); }
-    else{ document.getElementById('login-screen').classList.add('active'); }
+    else{ document.getElementById('login-screen').classList.add('active'); renderUserGrid(); }
   } catch(e) {
     // Se falhar, mostra tela de setup novamente
     document.getElementById('setup-screen').style.display='flex';
@@ -511,7 +511,7 @@ async function connectSupabase(){
     document.getElementById('setup-screen').style.display='none';
     const {data:{session}} = await sb.auth.getSession();
     if(session){ user=session.user; launchApp(); }
-    else{ document.getElementById('login-screen').classList.add('active'); }
+    else{ document.getElementById('login-screen').classList.add('active'); renderUserGrid(); }
     sb.auth.onAuthStateChange((ev,sess)=>{
       if(ev==='SIGNED_IN'){ user=sess.user; document.getElementById('login-screen').classList.remove('active'); launchApp(); }
       if(ev==='SIGNED_OUT'){ user=null; document.getElementById('app').style.display='none'; document.getElementById('login-screen').classList.add('active'); backToSelect(); renderUserGrid(); }
@@ -1447,6 +1447,9 @@ function loadImageAsBase64(url) {
   });
 }
 
+// Renderiza grid de usuários imediatamente ao carregar
+// (antes mesmo de initApp terminar, para a tela não ficar em branco)
+document.addEventListener('DOMContentLoaded', () => { renderUserGrid(); });
 initApp();
 </script>
 </body>
