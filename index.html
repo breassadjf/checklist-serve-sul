@@ -531,17 +531,31 @@ const USERS = [
   { name: 'Loja Rio de Janeiro',email: 'rj@servesul.com.br',   unit: 'rio_de_janeiro', emoji: '📍' },
 ];
 
+// ── MASTER & UNIT ──
+const MASTER_EMAILS = ['breno@servesul.com.br','igor@servesul.com.br'];
+function isMaster(){ return user && MASTER_EMAILS.includes(user.email?.toLowerCase()); }
+function userUnit(){ return user?.user_metadata?.unit || null; }
+function unitLabel(u){
+  if(u==='juiz_de_fora') return 'Juiz de Fora';
+  if(u==='rio_de_janeiro') return 'Rio de Janeiro';
+  if(u==='master') return 'Master';
+  return u||'—';
+}
+function unitColor(u){ return u==='juiz_de_fora'?'var(--blue2)':'var(--green)'; }
+
 let selectedUser = null;
 
 function renderUserGrid() {
   const grid = document.getElementById('user-grid');
   if (!grid) return;
-  grid.innerHTML = USERS.map((u, i) => `
-    <button onclick="selectUser(${i})" style="background:var(--bg3);border:1.5px solid var(--border);border-radius:12px;padding:14px 10px;cursor:pointer;transition:all .2s;text-align:center;font-family:'DM Sans',sans-serif">
-      <div style="font-size:26px;margin-bottom:6px">${u.emoji}</div>
-      <div style="font-size:13px;font-weight:700;color:var(--text)">${u.name}</div>
-      <div style="font-size:10px;color:var(--text3);margin-top:2px">${unitLabel(u.unit)}</div>
-    </button>`).join('');
+  grid.innerHTML = USERS.map((u, i) => {
+    const lbl = u.unit==='master' ? 'Master' : u.unit==='juiz_de_fora' ? 'Juiz de Fora' : u.unit==='rio_de_janeiro' ? 'Rio de Janeiro' : u.unit||'';
+    return `<button onclick="selectUser(${i})" style="background:var(--bg3);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 10px;cursor:pointer;text-align:center;font-family:'DM Sans',sans-serif;transition:border-color .2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'">
+      <div style="font-size:28px;margin-bottom:6px">${u.emoji}</div>
+      <div style="font-size:13px;font-weight:700;color:#f0f4ff">${u.name}</div>
+      <div style="font-size:10px;color:#5a7090;margin-top:3px">${lbl}</div>
+    </button>`;
+  }).join('');
 }
 
 function selectUser(idx) {
@@ -583,12 +597,7 @@ async function doLogin() {
 
 async function doSignOut(){ await sb.auth.signOut(); allData=[]; selectedUser=null; }
 
-// ── MASTER & UNIT ──
-const MASTER_EMAILS = ['breno@servesul.com.br','igor@servesul.com.br'];
-function isMaster(){ return MASTER_EMAILS.includes(user?.email?.toLowerCase()); }
-function userUnit(){ return user?.user_metadata?.unit || null; }
-function unitLabel(u){ return u==='juiz_de_fora'?'Juiz de Fora':u==='rio_de_janeiro'?'Rio de Janeiro':u||'—'; }
-function unitColor(u){ return u==='juiz_de_fora'?'var(--blue2)':'var(--green)'; }
+// ── MASTER & UNIT — defined above near USERS ──
 
 // ── LAUNCH ──
 function launchApp(){
@@ -1449,7 +1458,17 @@ function loadImageAsBase64(url) {
 
 // Renderiza grid de usuários imediatamente ao carregar
 // (antes mesmo de initApp terminar, para a tela não ficar em branco)
-document.addEventListener('DOMContentLoaded', () => { renderUserGrid(); });
+document.addEventListener('DOMContentLoaded', () => {
+  renderUserGrid();
+  // Safety: if login screen is active, make sure step-select is visible
+  const ls = document.getElementById('login-screen');
+  if (ls && ls.classList.contains('active')) {
+    const ss = document.getElementById('step-select');
+    const sp = document.getElementById('step-password');
+    if (ss) ss.style.display = 'block';
+    if (sp) sp.style.display = 'none';
+  }
+});
 initApp();
 </script>
 </body>
