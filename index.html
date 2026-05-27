@@ -114,6 +114,7 @@ select.fi{cursor:pointer}
 .pitem img{width:100%;height:100%;object-fit:cover}
 .rm-btn{position:absolute;top:4px;right:4px;background:var(--red);border:none;border-radius:50%;width:22px;height:22px;color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s}
 .pitem:hover .rm-btn{opacity:1}
+@media(max-width:768px){.rm-btn{opacity:1}}
 
 /* BUTTONS */
 .btn{padding:13px 24px;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .2s;display:inline-flex;align-items:center;gap:8px}
@@ -951,8 +952,8 @@ async function openDet(id){
   const em={carro:'🚗',moto:'🏍️',caminhao:'🚚',van:'🚐'};
   const emo=em[e.type]||'🚗', hasR=!!e.return_date;
   document.getElementById('det-title').textContent=`${emo} ${e.plate}`;
-  const dth=(e.delivery_photos||[]).map((u,i)=>`<div class="pitem" onclick="openLb('delivery','${id}',${i})"><img src="${u}" loading="lazy" alt=""></div>`).join('');
-  const rth=(e.return_photos||[]).map((u,i)=>`<div class="pitem" onclick="openLb('return','${id}',${i})"><img src="${u}" loading="lazy" alt=""></div>`).join('');
+  const dth=(e.delivery_photos||[]).map((u,i)=>`<div class="pitem" onclick="openLb('delivery','${id}',${i})"><img src="${u}" loading="lazy" alt=""><button class="rm-btn" onclick="event.stopPropagation();deleteSavedPhoto('${id}','delivery',${i})">✕</button></div>`).join('');
+  const rth=(e.return_photos||[]).map((u,i)=>`<div class="pitem" onclick="openLb('return','${id}',${i})"><img src="${u}" loading="lazy" alt=""><button class="rm-btn" onclick="event.stopPropagation();deleteSavedPhoto('${id}','return',${i})">✕</button></div>`).join('');
   document.getElementById('det-body').innerHTML=`
     <div class="digrid">
       <div class="diitem"><div class="dilbl">Placa</div><div class="dival mono">${e.plate}</div></div>
@@ -1268,6 +1269,35 @@ async function confirmSig() {
   document.getElementById('sig-preview').classList.add('show');
   document.getElementById('sig-status').style.display = 'block';
   closeSig();
+}
+
+// ── DELETE SAVED PHOTO ──
+async function deleteSavedPhoto(id, type, index) {
+  if (!confirm('Excluir esta foto?')) return;
+  const entry = allData.find(d => d.id === id);
+  if (!entry) return;
+  showLoad('Excluindo foto...');
+  try {
+    let photos;
+    let updateObj = {};
+    if (type === 'delivery') {
+      photos = [...(entry.delivery_photos || [])];
+      photos.splice(index, 1);
+      updateObj.delivery_photos = photos;
+    } else {
+      photos = [...(entry.return_photos || [])];
+      photos.splice(index, 1);
+      updateObj.return_photos = photos;
+    }
+    const { error } = await sb.from('checklists').update(updateObj).eq('id', id);
+    if (error) throw new Error(error.message);
+    toast('🗑 Foto excluída', 'success');
+    await fetchData();
+    openDet(id);
+  } catch(e) {
+    toast('Erro: ' + e.message, 'error');
+  }
+  hideLoad();
 }
 
 // ── ADD PHOTOS TO EXISTING CHECKLIST ──
