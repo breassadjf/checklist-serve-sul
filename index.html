@@ -449,7 +449,7 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 let sb = null, user = null, allData = [], filter = 'all';
 let lbImgs = [], lbIdx = 0;
-let dFiles = [], rFiles = [];
+let dFiles = [], rFiles = [], addDeliveryFiles = [], addReturnFiles = [];
 let detId = null;
 
 // ── INIT ──
@@ -752,8 +752,21 @@ function handleFiles(ev, type){
       .then(blob => {
         if(!blob || blob.size === 0){ toast('Erro ao processar foto: ' + file.name, 'error'); return; }
         const item = { blob, name: file.name, prev: URL.createObjectURL(blob) };
-        if(type === 'delivery'){ dFiles.push(item); renderPrev('prev-delivery', dFiles, 'delivery'); }
-        else { rFiles.push(item); renderPrev('prev-return', rFiles, 'return'); }
+        if(type === 'delivery'){
+          dFiles.push(item); renderPrev('prev-delivery', dFiles, 'delivery');
+        } else if(type === 'return'){
+          rFiles.push(item); renderPrev('prev-return', rFiles, 'return');
+        } else if(type === 'add-delivery'){
+          addDeliveryFiles.push(item);
+          renderPrev('prev-add-delivery', addDeliveryFiles, 'add-delivery');
+          const wrap = document.getElementById('btn-add-delivery-wrap');
+          if(wrap) wrap.style.display = 'block';
+        } else if(type === 'add-return'){
+          addReturnFiles.push(item);
+          renderPrev('prev-add-return', addReturnFiles, 'add-return');
+          const wrap = document.getElementById('btn-add-return-wrap');
+          if(wrap) wrap.style.display = 'block';
+        }
         processed++;
         if(processed === files.length) toast(processed + ' foto(s) pronta(s) para envio', 'success');
       })
@@ -829,7 +842,17 @@ function renderPrev(id,files,type){
 }
 function rmFile(i,type){
   if(type==='delivery'){ dFiles.splice(i,1); renderPrev('prev-delivery',dFiles,'delivery'); }
-  else{ rFiles.splice(i,1); renderPrev('prev-return',rFiles,'return'); }
+  else if(type==='return'){ rFiles.splice(i,1); renderPrev('prev-return',rFiles,'return'); }
+  else if(type==='add-delivery'){
+    addDeliveryFiles.splice(i,1); renderPrev('prev-add-delivery',addDeliveryFiles,'add-delivery');
+    const wrap=document.getElementById('btn-add-delivery-wrap');
+    if(wrap) wrap.style.display=addDeliveryFiles.length?'block':'none';
+  }
+  else if(type==='add-return'){
+    addReturnFiles.splice(i,1); renderPrev('prev-add-return',addReturnFiles,'add-return');
+    const wrap=document.getElementById('btn-add-return-wrap');
+    if(wrap) wrap.style.display=addReturnFiles.length?'block':'none';
+  }
 }
 
 // ── UPLOAD ──
@@ -950,6 +973,22 @@ async function openDet(id){
     </div>
     <div class="pstitle">📸 Fotos de Entrega <span class="cbadge">${(e.delivery_photos||[]).length}</span></div>
     ${dth?`<div class="pgrid">${dth}</div>`:'<p style="font-size:13px;color:var(--text3);margin-bottom:8px">Nenhuma foto</p>'}
+    <input type="file" id="f-add-delivery" accept="image/*,image/heic,image/heif" multiple style="display:none" onchange="handleFiles(event,'add-delivery')">
+    <input type="file" id="f-add-delivery-cam" accept="image/*" capture="environment" style="display:none" onchange="handleFiles(event,'add-delivery')">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;margin-bottom:4px">
+      <div class="upa" style="padding:14px 10px" onclick="document.getElementById('f-add-delivery-cam').click()">
+        <div style="font-size:22px;margin-bottom:4px">📷</div>
+        <div style="font-size:12px;font-weight:500;color:var(--text2)">+ Câmera</div>
+      </div>
+      <div class="upa" style="padding:14px 10px" onclick="document.getElementById('f-add-delivery').click()">
+        <div style="font-size:22px;margin-bottom:4px">🖼️</div>
+        <div style="font-size:12px;font-weight:500;color:var(--text2)">+ Galeria</div>
+      </div>
+    </div>
+    <div class="pgrid" id="prev-add-delivery" style="margin-bottom:8px"></div>
+    <div id="btn-add-delivery-wrap" style="display:none;margin-bottom:8px">
+      <button class="btn btn-p" style="font-size:13px;padding:10px" onclick="saveAddPhotos('${id}','delivery')">💾 Salvar Fotos de Entrega</button>
+    </div>
     <div class="pstitle">✍️ Assinatura de Entrega</div>
     ${e.delivery_signature
       ? `<img src="${e.delivery_signature}" style="width:100%;max-height:90px;object-fit:contain;background:#fff;border-radius:8px;padding:4px" alt="Assinatura Entrega">`
@@ -969,6 +1008,22 @@ async function openDet(id){
         </div>
         <div class="pstitle">📸 Fotos de Devolução <span class="cbadge">${e.return_photos.length}</span></div>
         <div class="pgrid">${rth}</div>
+        <input type="file" id="f-add-return" accept="image/*,image/heic,image/heif" multiple style="display:none" onchange="handleFiles(event,'add-return')">
+        <input type="file" id="f-add-return-cam" accept="image/*" capture="environment" style="display:none" onchange="handleFiles(event,'add-return')">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;margin-bottom:4px">
+          <div class="upa" style="padding:14px 10px" onclick="document.getElementById('f-add-return-cam').click()">
+            <div style="font-size:22px;margin-bottom:4px">📷</div>
+            <div style="font-size:12px;font-weight:500;color:var(--text2)">+ Câmera</div>
+          </div>
+          <div class="upa" style="padding:14px 10px" onclick="document.getElementById('f-add-return').click()">
+            <div style="font-size:22px;margin-bottom:4px">🖼️</div>
+            <div style="font-size:12px;font-weight:500;color:var(--text2)">+ Galeria</div>
+          </div>
+        </div>
+        <div class="pgrid" id="prev-add-return" style="margin-bottom:8px"></div>
+        <div id="btn-add-return-wrap" style="display:none;margin-bottom:8px">
+          <button class="btn btn-g" style="font-size:13px;padding:10px" onclick="saveAddPhotos('${id}','return')">💾 Salvar Fotos de Devolução</button>
+        </div>
         <div class="pstitle">✍️ Assinatura de Devolução</div>
         ${e.return_signature
           ? `<img src="${e.return_signature}" style="width:100%;max-height:90px;object-fit:contain;background:#fff;border-radius:8px;padding:4px" alt="Assinatura Devolução">`
@@ -1008,7 +1063,7 @@ async function openDet(id){
   document.getElementById('det-mo').classList.remove('hidden');
 }
 function maybeCloseDet(e){ if(e.target===document.getElementById('det-mo')) closeDet(); }
-function closeDet(){ document.getElementById('det-mo').classList.add('hidden'); detId=null; rFiles=[]; }
+function closeDet(){ document.getElementById('det-mo').classList.add('hidden'); detId=null; rFiles=[]; addDeliveryFiles=[]; addReturnFiles=[]; }
 
 async function saveReturn(id){
   const rd=document.getElementById('ret-date')?.value;
@@ -1213,6 +1268,35 @@ async function confirmSig() {
   document.getElementById('sig-preview').classList.add('show');
   document.getElementById('sig-status').style.display = 'block';
   closeSig();
+}
+
+// ── ADD PHOTOS TO EXISTING CHECKLIST ──
+async function saveAddPhotos(id, type) {
+  const files = type === 'delivery' ? addDeliveryFiles : addReturnFiles;
+  if (!files.length) { toast('Nenhuma foto para salvar', 'error'); return; }
+  showLoad('Enviando fotos...');
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) throw new Error('Sessão expirada. Faça login novamente.');
+    const urls = await uploadFiles(files, type + '/' + id);
+    const entry = allData.find(d => d.id === id);
+    let updateObj = {};
+    if (type === 'delivery') {
+      updateObj.delivery_photos = [...(entry.delivery_photos || []), ...urls];
+    } else {
+      updateObj.return_photos = [...(entry.return_photos || []), ...urls];
+    }
+    const { error } = await sb.from('checklists').update(updateObj).eq('id', id);
+    if (error) throw new Error('Erro ao salvar: ' + error.message);
+    if (type === 'delivery') { addDeliveryFiles = []; }
+    else { addReturnFiles = []; }
+    toast('✅ Fotos adicionadas!', 'success');
+    await fetchData();
+    openDet(id);
+  } catch(e) {
+    toast('❌ ' + e.message, 'error');
+  }
+  hideLoad();
 }
 
 // ── PDF GENERATION ──
