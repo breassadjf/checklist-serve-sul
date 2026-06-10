@@ -180,13 +180,16 @@ select.fi{cursor:pointer}
 .retsec .rlbl{font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--green);margin-bottom:14px}
 
 /* LIGHTBOX */
-.lb{position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
 .lb.hidden{display:none}
-.lb img{max-width:100%;max-height:80vh;object-fit:contain;border-radius:8px}
+.lb-img-wrap{display:flex;align-items:center;justify-content:center;width:100%;height:80vh;overflow:hidden;cursor:grab;position:relative}
+.lb-img-wrap.grabbing{cursor:grabbing}
+.lb img{max-width:100%;max-height:80vh;object-fit:contain;border-radius:8px;transition:transform 0.1s ease;transform-origin:center center;user-select:none;-webkit-user-select:none;pointer-events:none}
 .lbcap{color:var(--text2);font-size:13px;margin-top:12px;text-align:center;padding:0 20px}
-.lbclose{position:absolute;top:20px;right:20px;background:rgba(255,255,255,.1);border:none;border-radius:50%;width:44px;height:44px;color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-.lbnav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.1);border:none;border-radius:50%;width:44px;height:44px;color:#fff;font-size:26px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.lbclose{position:absolute;top:20px;right:20px;background:rgba(255,255,255,.1);border:none;border-radius:50%;width:44px;height:44px;color:#fff;font-size:22px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10}
+.lbnav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.1);border:none;border-radius:50%;width:44px;height:44px;color:#fff;font-size:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10}
 .lbprev{left:12px}.lbnext{right:12px}
+.lb-zoom-hint{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.5);color:rgba(255,255,255,.5);font-size:11px;padding:4px 12px;border-radius:20px;pointer-events:none}
 
 /* LOADING */
 .spin{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite}
@@ -408,10 +411,13 @@ select.fi{cursor:pointer}
 <!-- LIGHTBOX -->
 <div class="lb hidden" id="lb">
   <button class="lbclose" onclick="closeLb()">✕</button>
-  <button class="lbnav lbprev" onclick="navLb(-1)">‹</button>
-  <button class="lbnav lbnext" onclick="navLb(1)">›</button>
-  <img id="lb-img" src="" alt="">
+  <button class="lbnav lbprev" id="lb-prev" onclick="navLb(-1)">‹</button>
+  <button class="lbnav lbnext" id="lb-next" onclick="navLb(1)">›</button>
+  <div class="lb-img-wrap" id="lb-img-wrap">
+    <img id="lb-img" src="" alt="">
+  </div>
   <div class="lbcap" id="lb-cap"></div>
+  <div class="lb-zoom-hint" id="lb-zoom-hint">Aperte 2x para zoom • Pinça para zoom</div>
 </div>
 
 <!-- SIGNATURE MODAL -->
@@ -905,7 +911,7 @@ async function saveChecklist(){
       delUrls = await uploadFiles(dFiles, 'delivery/' + plate);
     }
     showLoad('Salvando registro...');
-    const deliverySig = document.getElementById('sig-preview-delivery')?.src || null;
+    const deliverySig = pendingDeliverySig || document.getElementById('sig-preview-delivery')?.src || null;
     const { error } = await sb.from('checklists').insert({
       plate, contract, client, type, notes,
       unit: unit,
@@ -917,6 +923,7 @@ async function saveChecklist(){
       created_by: user.id
     });
     if(error) throw new Error('Erro ao salvar: ' + error.message);
+    pendingDeliverySig = null; pendingReturnSig = null;
     toast('Checklist salvo!', 'success');
     showView('buscar');
     await fetchData();
@@ -939,6 +946,7 @@ function resetForm(){
   // Auto-fill unit for non-master users
   const uSel=document.getElementById('n-unit');
   if(uSel){ if(!isMaster()&&userUnit()){ uSel.value=userUnit(); uSel.disabled=true; } else { uSel.value=''; uSel.disabled=false; } }
+  pendingDeliverySig = null; pendingReturnSig = null;
   const nowInit=new Date(); document.getElementById('n-time').value=nowInit.toTimeString().slice(0,5);
   const nowT=new Date(); document.getElementById('n-time').value=nowT.toTimeString().slice(0,5);
   document.getElementById('prev-delivery').innerHTML='';
@@ -1078,7 +1086,7 @@ async function saveReturn(id){
     if(!session) throw new Error('Sessao expirada. Faca login novamente.');
     const urls = await uploadFiles(rFiles, 'return/' + id);
     const entry = allData.find(d=>d.id===id);
-    const retSig = document.getElementById('sig-preview-return')?.src || null;
+    const retSig = pendingReturnSig || document.getElementById('sig-preview-return')?.src || null;
     const { error } = await sb.from('checklists').update({
       return_photos: [...(entry.return_photos||[]), ...urls],
       return_date: rd,
@@ -1121,14 +1129,117 @@ function quickLb(id,idx){
   lbImgs=[...(e.delivery_photos||[]).map(u=>({src:u,cap:`📸 Entrega · ${e.plate}`})),...(e.return_photos||[]).map(u=>({src:u,cap:`🔁 Devolução · ${e.plate}`}))];
   lbIdx=idx; showLb();
 }
-function showLb(){ if(!lbImgs.length) return; document.getElementById('lb').classList.remove('hidden'); updLb(); }
-function updLb(){ const i=lbImgs[lbIdx]; document.getElementById('lb-img').src=i.src; document.getElementById('lb-cap').textContent=`${i.cap} · (${lbIdx+1}/${lbImgs.length})`; }
-function navLb(d){ lbIdx=(lbIdx+d+lbImgs.length)%lbImgs.length; updLb(); }
-function closeLb(){ document.getElementById('lb').classList.add('hidden'); }
-document.getElementById('lb').addEventListener('click',e=>{ if(e.target===document.getElementById('lb')) closeLb(); });
-let tx=0;
-document.getElementById('lb').addEventListener('touchstart',e=>tx=e.touches[0].clientX);
-document.getElementById('lb').addEventListener('touchend',e=>{ const dx=e.changedTouches[0].clientX-tx; if(Math.abs(dx)>50) navLb(dx<0?1:-1); });
+// ── LIGHTBOX WITH ZOOM ──
+let lbScale = 1, lbPanX = 0, lbPanY = 0;
+let lbPinchDist = 0, lbIsPanning = false, lbPanStart = {x:0,y:0};
+let lbLastTap = 0;
+
+function showLb(){
+  if(!lbImgs.length) return;
+  resetLbZoom();
+  document.getElementById('lb').classList.remove('hidden');
+  updLb();
+}
+function updLb(){
+  const i = lbImgs[lbIdx];
+  document.getElementById('lb-img').src = i.src;
+  document.getElementById('lb-cap').textContent = `${i.cap} · (${lbIdx+1}/${lbImgs.length})`;
+  resetLbZoom();
+}
+function navLb(d){
+  if(lbScale > 1) return; // don't navigate while zoomed
+  lbIdx = (lbIdx+d+lbImgs.length)%lbImgs.length; updLb();
+}
+function closeLb(){
+  document.getElementById('lb').classList.add('hidden');
+  resetLbZoom();
+}
+function resetLbZoom(){
+  lbScale=1; lbPanX=0; lbPanY=0;
+  applyLbTransform();
+  const hint = document.getElementById('lb-zoom-hint');
+  if(hint){ hint.style.opacity='1'; setTimeout(()=>hint.style.opacity='0',2000); }
+}
+function applyLbTransform(){
+  const img = document.getElementById('lb-img');
+  img.style.transform = `scale(${lbScale}) translate(${lbPanX/lbScale}px, ${lbPanY/lbScale}px)`;
+  // Show/hide nav arrows based on zoom level
+  document.getElementById('lb-prev').style.opacity = lbScale>1?'0':'1';
+  document.getElementById('lb-next').style.opacity = lbScale>1?'0':'1';
+}
+
+const lbEl = document.getElementById('lb');
+const lbWrap = document.getElementById('lb-img-wrap');
+
+// Close on background click
+lbEl.addEventListener('click', e => { if(e.target===lbEl) closeLb(); });
+
+// Touch events for swipe + pinch zoom + double tap
+lbEl.addEventListener('touchstart', e => {
+  if(e.touches.length === 2){
+    // Pinch start
+    lbPinchDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+  } else if(e.touches.length === 1){
+    // Double tap zoom
+    const now = Date.now();
+    if(now - lbLastTap < 300){
+      if(lbScale > 1){ resetLbZoom(); }
+      else { lbScale=2.5; lbPanX=0; lbPanY=0; applyLbTransform(); }
+      lbLastTap = 0; return;
+    }
+    lbLastTap = now;
+    // Pan start
+    if(lbScale > 1){
+      lbIsPanning = true;
+      lbPanStart = { x: e.touches[0].clientX - lbPanX, y: e.touches[0].clientY - lbPanY };
+      lbWrap.classList.add('grabbing');
+    } else {
+      tx = e.touches[0].clientX;
+    }
+  }
+}, {passive:true});
+
+lbEl.addEventListener('touchmove', e => {
+  if(e.touches.length === 2){
+    e.preventDefault();
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    const delta = dist / lbPinchDist;
+    lbScale = Math.min(Math.max(lbScale * delta, 1), 5);
+    lbPinchDist = dist;
+    applyLbTransform();
+  } else if(e.touches.length === 1 && lbIsPanning && lbScale > 1){
+    e.preventDefault();
+    lbPanX = e.touches[0].clientX - lbPanStart.x;
+    lbPanY = e.touches[0].clientY - lbPanStart.y;
+    applyLbTransform();
+  }
+}, {passive:false});
+
+lbEl.addEventListener('touchend', e => {
+  lbWrap.classList.remove('grabbing');
+  lbIsPanning = false;
+  if(e.changedTouches.length === 1 && lbScale <= 1){
+    const dx = e.changedTouches[0].clientX - tx;
+    if(Math.abs(dx) > 50) navLb(dx<0?1:-1);
+  }
+  if(lbScale < 1){ resetLbZoom(); }
+});
+
+// Desktop mouse wheel zoom
+lbEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  lbScale = Math.min(Math.max(lbScale - e.deltaY*0.002, 1), 5);
+  if(lbScale===1){lbPanX=0;lbPanY=0;}
+  applyLbTransform();
+}, {passive:false});
+
+let tx = 0;
 
 // ── UTILS ──
 function showLoad(t='Processando...'){ document.getElementById('lovo-txt').textContent=t; document.getElementById('lovo').classList.remove('hidden'); }
@@ -1169,6 +1280,7 @@ async function saveEditDateTime(id, type) {
 
 // ── SIGNATURE ──
 let sigCtx = null, sigDrawing = false, sigMode = null, sigTargetId = null;
+let pendingDeliverySig = null, pendingReturnSig = null; // in-memory signatures for new checklists
 
 function openSig(mode, targetId) {
   sigMode = mode;
@@ -1228,47 +1340,53 @@ function clearSig() {
 
 async function confirmSig() {
   const canvas = document.getElementById('sig-canvas');
-  const dataUrl = canvas.toDataURL('image/png');
 
-  // Check if canvas has actual drawing (not blank white)
+  // Check if canvas has actual drawing
   const blank = document.createElement('canvas');
   blank.width = canvas.width; blank.height = canvas.height;
   const bCtx = blank.getContext('2d');
   bCtx.fillStyle = '#ffffff'; bCtx.fillRect(0, 0, blank.width, blank.height);
+  const dataUrl = canvas.toDataURL('image/png');
   if (dataUrl === blank.toDataURL('image/png')) {
     toast('Desenhe a assinatura antes de confirmar', 'error'); return;
   }
 
+  closeSig(); // close first so modal doesn't block
+
   if (sigMode === 'delivery-new') {
+    // Store in memory variable — will be saved with checklist
+    pendingDeliverySig = dataUrl;
     const prev = document.getElementById('sig-preview-delivery');
     const status = document.getElementById('sig-status-delivery');
     if (prev) { prev.src = dataUrl; prev.classList.add('show'); }
     if (status) status.style.display = 'block';
+    toast('✅ Assinatura de entrega capturada!', 'success');
+
   } else if (sigMode === 'return-new') {
+    // Store in memory variable — will be saved with devolução
+    pendingReturnSig = dataUrl;
     const prev = document.getElementById('sig-preview-return');
     const status = document.getElementById('sig-status-return');
     if (prev) { prev.src = dataUrl; prev.classList.add('show'); }
     if (status) status.style.display = 'block';
+    toast('✅ Assinatura de devolução capturada!', 'success');
+
   } else if (sigMode === 'delivery-det' && sigTargetId) {
     showLoad('Salvando assinatura...');
     const { error } = await sb.from('checklists').update({ delivery_signature: dataUrl }).eq('id', sigTargetId);
     hideLoad();
     if (error) { toast('Erro: ' + error.message, 'error'); return; }
-    toast('Assinatura de entrega salva!', 'success');
+    toast('✅ Assinatura de entrega salva!', 'success');
     await fetchData(); openDet(sigTargetId);
+
   } else if (sigMode === 'return-det' && sigTargetId) {
     showLoad('Salvando assinatura...');
     const { error } = await sb.from('checklists').update({ return_signature: dataUrl }).eq('id', sigTargetId);
     hideLoad();
     if (error) { toast('Erro: ' + error.message, 'error'); return; }
-    toast('Assinatura de devolução salva!', 'success');
+    toast('✅ Assinatura de devolução salva!', 'success');
     await fetchData(); openDet(sigTargetId);
   }
-
-  document.getElementById('sig-preview').src = dataUrl;
-  document.getElementById('sig-preview').classList.add('show');
-  document.getElementById('sig-status').style.display = 'block';
-  closeSig();
 }
 
 // ── DELETE SAVED PHOTO ──
