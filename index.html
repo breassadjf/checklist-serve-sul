@@ -646,6 +646,9 @@ function launchApp(){
 
   fetchData();
   setupRT();
+  updateOfflineBadge();
+  // Check for pending offline photos on startup
+  if(navigator.onLine) setTimeout(()=>processOfflineQueue(), 2000);
 }
 
 // ── REALTIME ──
@@ -907,12 +910,12 @@ async function saveChecklist(){
     const { data: { session } } = await sb.auth.getSession();
     if(!session) throw new Error('Sessao expirada. Faca login novamente.');
     let delUrls = [];
-    if(dFiles.length > 0){
+    if(dFiles.length > 0 && navigator.onLine){
       delUrls = await uploadFiles(dFiles, 'delivery/' + plate);
     }
     showLoad('Salvando registro...');
     const deliverySig = pendingDeliverySig || document.getElementById('sig-preview-delivery')?.src || null;
-    const { error } = await sb.from('checklists').insert({
+    const { data: insertData, error } = await sb.from('checklists').insert({
       plate, contract, client, type, notes,
       unit: unit,
       delivery_date: dt,
@@ -921,10 +924,20 @@ async function saveChecklist(){
       delivery_signature: (deliverySig && deliverySig.startsWith('data:')) ? deliverySig : null,
       return_photos: [],
       created_by: user.id
-    });
+    }).select('id').single();
     if(error) throw new Error('Erro ao salvar: ' + error.message);
+    // Se tinha fotos e estava offline, enfileira para upload posterior
+    if(dFiles.length > 0 && !navigator.onLine && insertData?.id){
+      for(const f of dFiles){
+        const b64 = await blobToBase64(f.blob);
+        await idbAdd({ folder: 'delivery/'+plate, b64, name: f.name, meta: { checklistId: insertData.id, photoType: 'delivery' }, savedAt: Date.now() });
+      }
+      updateOfflineBadge();
+      toast('📴 Checklist salvo! Fotos serão enviadas quando tiver internet.', 'success');
+    } else {
+      toast('✅ Checklist salvo!', 'success');
+    }
     pendingDeliverySig = null; pendingReturnSig = null;
-    toast('Checklist salvo!', 'success');
     showView('buscar');
     await fetchData();
   } catch(e) {
@@ -1084,7 +1097,16 @@ async function saveReturn(id){
   try{
     const { data: { session } } = await sb.auth.getSession();
     if(!session) throw new Error('Sessao expirada. Faca login novamente.');
-    const urls = await uploadFiles(rFiles, 'return/' + id);
+    let urls = [];
+    if(navigator.onLine){
+      urls = await uploadFiles(rFiles, 'return/' + id);
+    } else {
+      for(const f of rFiles){
+        const b64 = await blobToBase64(f.blob);
+        await idbAdd({ folder: 'return/'+id, b64, name: f.name, meta: { checklistId: id, photoType: 'return' }, savedAt: Date.now() });
+      }
+      updateOfflineBadge();
+    }
     const entry = allData.find(d=>d.id===id);
     const retSig = pendingReturnSig || document.getElementById('sig-preview-return')?.src || null;
     const { error } = await sb.from('checklists').update({
@@ -1094,7 +1116,7 @@ async function saveReturn(id){
       return_signature: (retSig && retSig.startsWith('data:')) ? retSig : null
     }).eq('id', id);
     if(error) throw new Error('Erro ao salvar devolucao: ' + error.message);
-    toast('Devolucao registrada!','success');
+    toast(navigator.onLine ? '✅ Devolução registrada!' : '📴 Devolução salva! Fotos serão enviadas quando tiver internet.', 'success');
     closeDet(); await fetchData();
   }catch(e){
     const t = document.getElementById('toast');
@@ -1426,19 +1448,30 @@ async function saveAddPhotos(id, type) {
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) throw new Error('Sessão expirada. Faça login novamente.');
-    const urls = await uploadFiles(files, type + '/' + id);
+    let urls = [];
+    if(navigator.onLine){
+      urls = await uploadFiles(files, type + '/' + id);
+    } else {
+      for(const f of files){
+        const b64 = await blobToBase64(f.blob);
+        await idbAdd({ folder: type+'/'+id, b64, name: f.name, meta: { checklistId: id, photoType: type }, savedAt: Date.now() });
+      }
+      updateOfflineBadge();
+    }
     const entry = allData.find(d => d.id === id);
     let updateObj = {};
     if (type === 'delivery') {
       updateObj.delivery_photos = [...(entry.delivery_photos || []), ...urls];
+      addDeliveryFiles = [];
     } else {
       updateObj.return_photos = [...(entry.return_photos || []), ...urls];
+      addReturnFiles = [];
     }
-    const { error } = await sb.from('checklists').update(updateObj).eq('id', id);
-    if (error) throw new Error('Erro ao salvar: ' + error.message);
-    if (type === 'delivery') { addDeliveryFiles = []; }
-    else { addReturnFiles = []; }
-    toast('✅ Fotos adicionadas!', 'success');
+    if(urls.length > 0){
+      const { error } = await sb.from('checklists').update(updateObj).eq('id', id);
+      if (error) throw new Error('Erro ao salvar: ' + error.message);
+    }
+    toast(navigator.onLine ? '✅ Fotos adicionadas!' : '📴 Fotos salvas offline! Serão enviadas quando tiver internet.', 'success');
     await fetchData();
     openDet(id);
   } catch(e) {
@@ -1713,6 +1746,168 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sp) sp.style.display = 'none';
   }
 });
+
+// ════════════════════════════════════════════════════
+// OFFLINE QUEUE — IndexedDB para salvar fotos sem sinal
+// ════════════════════════════════════════════════════
+const IDB_NAME = 'checklist-offline', IDB_VER = 1, IDB_STORE = 'queue';
+
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VER);
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function idbAdd(item) {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).add(item);
+    tx.oncomplete = resolve;
+    tx.onerror = e => reject(e.target.error);
+  });
+}
+
+async function idbGetAll() {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).getAll();
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function idbDelete(id) {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(id);
+    tx.oncomplete = resolve;
+    tx.onerror = e => reject(e.target.error);
+  });
+}
+
+// Blob <-> base64 helpers for IndexedDB storage
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+function base64ToBlob(dataUrl) {
+  const [meta, data] = dataUrl.split(',');
+  const mime = meta.match(/:(.*?);/)[1];
+  const binary = atob(data);
+  const arr = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+// ── UPLOAD WITH OFFLINE FALLBACK ──
+async function uploadFilesWithFallback(files, folder, queueMeta) {
+  if (!navigator.onLine) {
+    // Save each file to IndexedDB queue
+    for (const f of files) {
+      const b64 = await blobToBase64(f.blob);
+      await idbAdd({ folder, b64, name: f.name, meta: queueMeta, savedAt: Date.now() });
+    }
+    updateOfflineBadge();
+    throw new Error('OFFLINE_QUEUED');
+  }
+  return await uploadFiles(files, folder);
+}
+
+// ── PROCESS OFFLINE QUEUE when back online ──
+async function processOfflineQueue() {
+  const queue = await idbGetAll();
+  if (!queue.length) return;
+
+  showLoad(`Enviando ${queue.length} foto(s) salvas offline...`);
+  let sent = 0, failed = 0;
+
+  for (const item of queue) {
+    try {
+      const blob = base64ToBlob(item.b64);
+      const file = { blob, name: item.name };
+      const path = `${item.folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+
+      const { data, error } = await sb.storage
+        .from('checklist-photos')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = sb.storage.from('checklist-photos').getPublicUrl(data.path);
+
+      // Attach to the right checklist
+      if (item.meta && item.meta.checklistId) {
+        const entry = allData.find(d => d.id === item.meta.checklistId);
+        if (entry) {
+          const field = item.meta.photoType === 'return' ? 'return_photos' : 'delivery_photos';
+          const current = [...(entry[field] || []), publicUrl];
+          await sb.from('checklists').update({ [field]: current }).eq('id', item.meta.checklistId);
+        }
+      }
+
+      await idbDelete(item.id);
+      sent++;
+    } catch(e) {
+      console.error('Queue item failed:', e);
+      failed++;
+    }
+  }
+
+  hideLoad();
+  updateOfflineBadge();
+  await fetchData();
+
+  if (sent > 0)   toast(`✅ ${sent} foto(s) offline enviadas com sucesso!`, 'success');
+  if (failed > 0) toast(`⚠️ ${failed} foto(s) não puderam ser enviadas`, 'error');
+}
+
+// ── OFFLINE BADGE in header ──
+async function updateOfflineBadge() {
+  try {
+    const queue = await idbGetAll();
+    let badge = document.getElementById('offline-badge');
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.id = 'offline-badge';
+      badge.style.cssText = 'padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid;white-space:nowrap;cursor:pointer';
+      badge.onclick = () => { if(navigator.onLine) processOfflineQueue(); };
+      const hright = document.querySelector('.hright');
+      if (hright) hright.insertBefore(badge, hright.firstChild);
+    }
+    if (queue.length > 0) {
+      badge.textContent = `📴 ${queue.length} foto(s) offline`;
+      badge.style.color = 'var(--accent)';
+      badge.style.borderColor = 'rgba(232,160,32,0.4)';
+      badge.style.background = 'rgba(232,160,32,0.1)';
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch(e) { console.log('Badge error', e); }
+}
+
+// ── LISTEN for reconnection ──
+window.addEventListener('online', () => {
+  setSC('ok');
+  toast('📶 Conexão restaurada! Enviando fotos...', 'success');
+  setTimeout(() => processOfflineQueue(), 1500);
+});
+window.addEventListener('offline', () => {
+  setSC('err');
+  toast('📴 Sem internet — fotos serão salvas localmente', 'error');
+});
+
 initApp();
 </script>
 </body>
